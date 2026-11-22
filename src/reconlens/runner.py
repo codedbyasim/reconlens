@@ -155,7 +155,8 @@ async def _run_one(source: Source, target: Target, ctx: RunContext) -> SourceRun
             )
     try:
         raw = await asyncio.wait_for(source.run(target, ctx), timeout=ctx.timeout)
-    except TimeoutError:
+    except (TimeoutError, asyncio.TimeoutError):
+        # 3.10 raises asyncio.TimeoutError, which is not the builtin TimeoutError.
         return finish("error", error=f"timed out after {ctx.timeout:.0f}s")
     except SourceError as exc:
         return finish("error", error=scrub_text(str(exc), ctx.secrets)[:400])
