@@ -1,0 +1,300 @@
+"""MX, SPF, and DMARC, plus optional BIMI, MTA-STS, and TLS-RPT records.
+
+All of this is DNS. Policy files at https://mta-sts.<domain>/ are not fetched.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import re
+
+from reconlens import dnsutil
+from reconlens.context import RunContext
+from reconlens.dnsutil import DnsAnswer
+from reconlens.errors import SourceError
+from reconlens.models import Category, Finding, Severity, Target, TargetType, make_finding
+from reconlens.plugins.base import Source
+
+_ALL = re.compile(r"(?:^|\s)(\+|-|~|\?)all(?:$|\s)", re.IGNORECASE)
+
+
+class EmailAuthSource(Source):
+    """Mail-authentication records for the domain of an email address."""
+
+    name = "email-auth"
+    description = "MX, SPF, and DMARC, plus BIMI, MTA-STS, and TLS-RPT when published"
+    target_types = frozenset({TargetType.EMAIL})
+    min_interval_seconds = 0.0
+    display_order = 20
+    homepage = "https://www.rfc-editor.org/rfc/rfc7208"
+
+    async def run(self, target: Target, ctx: RunContext) -> list[Finding]:
+        domain = target.value.split("@", 1)[1]
+        queries = (
+            (domain, "MX"),
+            (domain, "TXT"),
+            (f"_dmarc.{domain}", "TXT"),
+            (f"default._bimi.{domain}", "TXT"),
+            (f"_mta-sts.{domain}", "TXT"),
+            (f"_smtp._tls.{domain}", "TXT"),
+        )
+        answers = await asyncio.gather(
+            *(dnsutil.resolve(name, rtype, ctx.timeout) for name, rtype in queries)
+        )
+        return findings_from_mail(self.name, domain, list(answers))
+
+
+def findings_from_mail(source: str, domain: str, answers: list[DnsAnswer]) -> list[Finding]:
+    """Interpret a fixed set of mail DNS answers. ``answers`` follows the query order."""
+
+    if len(answers) != 6:
+        raise SourceError("internal mail lookup did not return every answer")
+    mx, txt, dmarc, bimi, mta_sts, tls_rpt = answers
+    if all(item.error == "timeout" for item in answers):
+        raise SourceError("mail DNS queries timed out")
+    findings: list[Finding] = []
+    findings.extend(_mx_findings(source, domain, mx))
+    findings.extend(_spf_findings(source, _values(txt)))
+    findings.extend(_dmarc_findings(source, domain, dmarc))
+    findings.extend(_optional_txt(source, "BIMI", bimi))
+    findings.extend(_optional_txt(source, "MTA-STS", mta_sts))
+    findings.extend(_optional_txt(source, "TLS-RPT", tls_rpt))
+    return findings
+
+
+def _values(answer: DnsAnswer) -> list[str]:
+    if answer.error is not None:
+        return []
+    return [value.strip() for value in answer.values if value.strip()]
+
+
+def _mx_findings(source: str, domain: str, answer: DnsAnswer) -> list[Finding]:
+    if answer.error == "timeout":
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="MX query timed out",
+                value=domain,
+                severity=Severity.LOW,
+            )
+        ]
+    if answer.error == "nxdomain":
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="Mail domain does not resolve",
+                value=domain,
+                severity=Severity.LOW,
+            )
+        ]
+    values = _values(answer)
+    if not values:
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="No MX records",
+                value=domain,
+                detail="There is no MX record. Delivery may fall back to an A or AAAA record.",
+                severity=Severity.LOW,
+            )
+        ]
+    findings: list[Finding] = []
+    for value in values:
+        if _is_null_mx(value):
+            findings.append(
+                make_finding(
+                    source=source,
+                    category=Category.EMAIL,
+                    title="Null MX",
+                    value="0 .",
+                    detail="This domain announces that it does not accept mail (RFC 7505).",
+                )
+            )
+            continue
+        shown = value[:-1].strip() if value.endswith(".") else value
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="MX",
+                value=shown,
+            )
+        )
+    return findings
+
+
+def _is_null_mx(value: str) -> bool:
+    compact = value.replace(" ", "").lower()
+    return compact in {"0.", "0"}
+
+
+def _spf_findings(source: str, records: list[str]) -> list[Finding]:
+    spf = [record for record in records if record.lower().startswith("v=spf1")]
+    if not spf:
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="SPF record not found",
+                value="none",
+                detail="The domain publishes no v=spf1 TXT record.",
+                severity=Severity.LOW,
+            )
+        ]
+    findings: list[Finding] = []
+    if len(spf) > 1:
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="Multiple SPF records",
+                value=str(len(spf)),
+                detail="A domain is expected to publish one SPF record. Extra records can be a permerror.",
+                severity=Severity.MEDIUM,
+            )
+        )
+    for record in spf:
+        title, severity, detail = _describe_spf(record)
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title=title,
+                value=record,
+                detail=detail,
+                severity=severity,
+            )
+        )
+    return findings
+
+
+def _describe_spf(record: str) -> tuple[str, Severity, str]:
+    match = None
+    for candidate in _ALL.finditer(record):
+        match = candidate
+    if match is None:
+        return (
+            "SPF has no terminal all mechanism",
+            Severity.LOW,
+            "The record does not include an all mechanism.",
+        )
+    qualifier = match.group(1)
+    if qualifier == "+":
+        return (
+            "SPF allows any sender",
+            Severity.MEDIUM,
+            "The record uses +all, so it does not restrict envelope senders.",
+        )
+    if qualifier == "-":
+        return ("SPF rejects unmatched senders", Severity.INFO, "The record uses -all.")
+    if qualifier == "~":
+        return (
+            "SPF soft-fails unmatched senders",
+            Severity.INFO,
+            "The record uses ~all.",
+        )
+    return (
+        "SPF does not enforce a result",
+        Severity.LOW,
+        "The record uses ?all, which is a neutral result.",
+    )
+
+
+def _dmarc_findings(source: str, domain: str, answer: DnsAnswer) -> list[Finding]:
+    if answer.error == "timeout":
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="DMARC query timed out",
+                value=f"_dmarc.{domain}",
+                severity=Severity.LOW,
+            )
+        ]
+    records = [value for value in _values(answer) if value.lower().startswith("v=dmarc1")]
+    if not records:
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="DMARC record not found",
+                value=f"_dmarc.{domain}",
+                detail="Receivers have no published DMARC policy for this domain.",
+                severity=Severity.LOW,
+            )
+        ]
+    findings: list[Finding] = []
+    if len(records) > 1:
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="Multiple DMARC records",
+                value=str(len(records)),
+                detail="A domain is expected to publish one DMARC record.",
+                severity=Severity.MEDIUM,
+            )
+        )
+    tags = _tags(records[0])
+    policy = tags.get("p", "").lower()
+    if policy == "reject":
+        title, severity = "DMARC policy is reject", Severity.INFO
+        detail = "Unaligned mail is rejected when receivers honor the record."
+    elif policy == "quarantine":
+        title, severity = "DMARC policy is quarantine", Severity.INFO
+        detail = "Unaligned mail is quarantined when receivers honor the record."
+    elif policy == "none":
+        title, severity = "DMARC policy is none", Severity.LOW
+        detail = "The domain asks for reports and does not ask receivers to reject mail."
+    else:
+        title, severity = "DMARC policy is missing", Severity.LOW
+        detail = "The record does not include a p= tag."
+    findings.append(
+        make_finding(
+            source=source,
+            category=Category.EMAIL,
+            title=title,
+            value=records[0],
+            detail=detail,
+            severity=severity,
+        )
+    )
+    return findings
+
+
+def _optional_txt(source: str, title: str, answer: DnsAnswer) -> list[Finding]:
+    if answer.error == "timeout":
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title=f"{title} query timed out",
+                value=answer.name,
+                severity=Severity.LOW,
+            )
+        ]
+    findings: list[Finding] = []
+    for value in _values(answer):
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title=title,
+                value=value,
+                detail="Published as DNS TXT. The policy URL was not fetched.",
+            )
+        )
+    return findings
+
+
+def _tags(record: str) -> dict[str, str]:
+    tags: dict[str, str] = {}
+    for part in record.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        tags[key.strip().lower()] = value.strip()
+    return tags

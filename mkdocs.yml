@@ -1,0 +1,43 @@
+site_name: ReconLens
+site_description: Passive, ethical OSINT reconnaissance
+repo_url: https://github.com/codedbyasim/reconlens
+repo_name: codedbyasim/reconlens
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - content.code.copy
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Plugin API: plugin-api.md
+  - Reports: reports.md
+  - Configuration: configuration.md
+  - Ethics: ethics.md
+  - Releasing: releasing.md
+  - Good first issues: good-first-issues.md
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+extra_javascript:
+  - https://unpkg.com/mermaid@11/dist/mermaid.min.js

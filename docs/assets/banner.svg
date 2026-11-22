@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="180" viewBox="0 0 960 180" role="img" aria-label="ReconLens, passive reconnaissance">
+  <rect width="960" height="180" rx="16" fill="#102422"/>
+  <rect x="36" y="42" width="96" height="96" rx="22" fill="#0f6e6b"/>
+  <circle cx="76" cy="82" r="20" fill="none" stroke="#f4fffe" stroke-width="4"/>
+  <circle cx="76" cy="82" r="5" fill="#f4fffe"/>
+  <path d="M91 97 L112 118" stroke="#f4fffe" stroke-width="4.5" stroke-linecap="round"/>
+  <text x="160" y="86" fill="#f4fffe" font-family="Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, serif" font-size="48">ReconLens</text>
+  <text x="162" y="122" fill="#b7d4d2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18">Passive reconnaissance. Authorized use only.</text>
+</svg>

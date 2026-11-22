@@ -1,0 +1,69 @@
+{
+  "note": "Add a site by copying an object. {username} may appear once, and only in the path or query. Use https. Pick a public profile URL that returns 404 when the account does not exist. Do not add sites that require a login.",
+  "sites": [
+    {
+      "name": "GitHub",
+      "category": "code",
+      "url": "https://github.com/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    },
+    {
+      "name": "GitLab",
+      "category": "code",
+      "url": "https://gitlab.com/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    },
+    {
+      "name": "Codeberg",
+      "category": "code",
+      "url": "https://codeberg.org/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    },
+    {
+      "name": "Keybase",
+      "category": "identity",
+      "url": "https://keybase.io/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    },
+    {
+      "name": "Dev.to",
+      "category": "writing",
+      "url": "https://dev.to/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    },
+    {
+      "name": "PyPI",
+      "category": "packages",
+      "url": "https://pypi.org/user/{username}/",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public package author page"
+    },
+    {
+      "name": "npm",
+      "category": "packages",
+      "url": "https://www.npmjs.com/~{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public package author page"
+    },
+    {
+      "name": "Hugging Face",
+      "category": "code",
+      "url": "https://huggingface.co/{username}",
+      "exists_status": [200],
+      "missing_status": [404],
+      "note": "Public profile page"
+    }
+  ]
+}

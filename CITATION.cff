@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: ReconLens
+message: If you use ReconLens in research, please cite it.
+type: software
+authors:
+  - given-names: Muhammad
+    family-names: Asim
+    alias: codedbyasim
+repository-code: https://github.com/codedbyasim/reconlens
+url: https://github.com/codedbyasim/reconlens
+license: MIT
+version: 0.1.0
+date-released: 2026-11-22
+keywords:
+  - osint
+  - reconnaissance
+  - passive
+  - dns
