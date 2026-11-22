@@ -1,0 +1,71 @@
+name: New source
+description: Propose a passive data source
+title: "[source] "
+labels: ["enhancement", "new-source"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A source is one small module. Read CONTRIBUTING.md before writing code.
+        Starter ideas are listed in docs/good-first-issues.md.
+  - type: input
+    id: name
+    attributes:
+      label: Source name
+      description: Lowercase CLI id, such as ripestat
+      placeholder: ripestat
+    validations:
+      required: true
+  - type: dropdown
+    id: targets
+    attributes:
+      label: Target types
+      multiple: true
+      options:
+        - domain
+        - ip
+        - email
+        - username
+    validations:
+      required: true
+  - type: dropdown
+    id: key
+    attributes:
+      label: API key
+      options:
+        - Not required
+        - Required, read from an environment variable
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment variable
+      description: Leave blank if the source is keyless
+      placeholder: EXAMPLE_API_KEY
+  - type: textarea
+    id: request
+    attributes:
+      label: The single read it performs
+      description: Method, URL, and which fields become findings. No scanning.
+      placeholder: |
+        GET https://example.com/api?resource=<ip>
+        Findings: prefix, holder name
+    validations:
+      required: true
+  - type: textarea
+    id: limits
+    attributes:
+      label: Rate limit and terms
+      description: What the provider asks clients to do.
+    validations:
+      required: true
+  - type: checkboxes
+    id: passive
+    attributes:
+      label: Confirm
+      options:
+        - label: This is a read of public or keyed lookup data. It does not scan, brute-force, or log in.
+          required: true
+        - label: I will add a respx (or DNS fake) test and no live network call in CI.
+          required: true

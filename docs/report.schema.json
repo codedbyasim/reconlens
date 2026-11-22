@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codedbyasim/reconlens/blob/main/docs/report.schema.json",
+  "title": "ReconLens report",
+  "description": "Schema version 1.x for reconlens JSON reports. Field names and types are stable within 1.x.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "target",
+    "started_at",
+    "finished_at",
+    "elapsed_ms",
+    "summary",
+    "notices",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "reconlens" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "type", "original"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["domain", "ip", "email", "username"] },
+        "original": { "type": "string" }
+      }
+    },
+    "started_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "finished_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "elapsed_ms": { "type": "integer", "minimum": 0 },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources_ok", "sources_skipped", "sources_error", "findings"],
+      "properties": {
+        "sources_ok": { "type": "integer", "minimum": 0 },
+        "sources_skipped": { "type": "integer", "minimum": 0 },
+        "sources_error": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "notices": { "type": "array", "items": { "type": "string" } },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "duration_ms", "cached", "error", "skip_reason", "findings"],
+      "properties": {
+        "name": { "type": "string" },
+        "status": { "enum": ["ok", "error", "skipped"] },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "cached": { "type": "boolean" },
+        "error": { "type": ["string", "null"] },
+        "skip_reason": { "type": ["string", "null"] },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "category",
+        "title",
+        "value",
+        "detail",
+        "severity",
+        "source_url",
+        "timestamp",
+        "data"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 8 },
+        "source": { "type": "string" },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "value": { "type": "string" },
+        "detail": { "type": ["string", "null"] },
+        "severity": { "enum": ["info", "low", "medium", "high"] },
+        "source_url": { "type": ["string", "null"] },
+        "timestamp": { "type": "string" },
+        "data": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    }
+  }
+}

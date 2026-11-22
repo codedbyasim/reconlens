@@ -1,0 +1,20 @@
+# Copy to ./reconlens.toml or ~/.config/reconlens/config.toml
+# chmod 600 the file if you put keys in it. Empty strings mean "not set".
+# Environment variables with the same names override this file.
+# ReconLens never prints key values.
+
+[cache]
+enabled = false
+ttl_seconds = 3600
+# directory = ""
+
+[http]
+timeout = 30
+# user_agent = ""
+
+[keys]
+VIRUSTOTAL_API_KEY = ""
+ABUSEIPDB_API_KEY = ""
+URLSCAN_API_KEY = ""
+SHODAN_API_KEY = ""
+HIBP_API_KEY = ""

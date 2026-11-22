@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64" role="img" aria-label="ReconLens">
+  <rect width="64" height="64" rx="14" fill="#0f6e6b"/>
+  <circle cx="27" cy="27" r="13" fill="none" stroke="#f4fffe" stroke-width="3"/>
+  <circle cx="27" cy="27" r="3.2" fill="#f4fffe"/>
+  <path d="M37 37 L51 51" stroke="#f4fffe" stroke-width="3.4" stroke-linecap="round"/>
+</svg>

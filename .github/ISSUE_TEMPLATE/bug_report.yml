@@ -1,0 +1,52 @@
+name: Bug report
+description: ReconLens behaved incorrectly
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do not include API keys, tokens, or data about
+        targets you are not comfortable publishing. ReconLens is passive; if
+        the bug is "it did not scan ports", that is the design.
+  - type: input
+    id: version
+    attributes:
+      label: ReconLens version
+      description: Output of `reconlens --version`
+      placeholder: reconlens 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: 3.12.3
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The argv you ran, with secrets removed.
+      placeholder: reconlens domain example.com --output json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Paste stderr. Remove anything that looks like a key.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: OS, whether a config file is in use (do not paste the keys).
