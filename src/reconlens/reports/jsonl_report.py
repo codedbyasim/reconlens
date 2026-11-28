@@ -18,5 +18,6 @@ def render_jsonl(report: Report) -> str:
                 "target_type": report.target.type.value,
                 **finding_to_dict(finding),
             }
-            lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+            line = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+            lines.append(line.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
     return "".join(f"{line}\n" for line in lines)

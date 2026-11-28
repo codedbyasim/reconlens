@@ -51,14 +51,16 @@ and tells you to use JSON for the rest. The file formats keep every finding.
 
 `--output csv` writes one row per finding. The columns, in order, are
 `source,category,severity,title,value,detail,source_url,timestamp,id`. Every
-field is quoted, the file is UTF-8, and it ends with a newline. Missing `detail`
+field is quoted, the file is UTF-8, and it ends with a newline. Cells that start with `=`, `+`, `-`, `@`, a tab, or a carriage return get a
+leading single quote so spreadsheets do not run them as formulas. Missing `detail`
 and `source_url` values are empty strings. The `data` object is not included;
 use JSON for it.
 
 `--output jsonl` writes one compact JSON object per line. Each object has the
 finding fields from schema 1.x (`id`, `source`, `category`, `title`, `value`,
 `detail`, `severity`, `source_url`, `timestamp`, `data`) preceded by `target`
-and `target_type`. Every line parses with `json.loads`. The report is buffered
+and `target_type`. U+2028 and U+2029 are written as `\u2028` and `\u2029` escapes, so every line is
+one physical line. Every line parses with `json.loads`. The report is buffered
 and then written, so lines appear after all sources finish.
 
 Neither format changes the JSON schema. `reconlens report --input report.json

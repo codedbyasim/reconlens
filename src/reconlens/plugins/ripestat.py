@@ -68,7 +68,7 @@ def findings_from_network_info(
     payload: dict[str, Any],
     source_url: str,
 ) -> list[Finding]:
-    """Map a RIPEstat network-info response onto prefix, ASN, and holder findings."""
+    """Map a RIPEstat network-info response onto prefix and ASN findings (network-info has no holder field)."""
 
     data = as_dict(payload.get("data"))
     findings: list[Finding] = []
@@ -97,17 +97,6 @@ def findings_from_network_info(
                         source_url=source_url,
                     )
                 )
-    holder = _text(data.get("holder"))
-    if holder:
-        findings.append(
-            make_finding(
-                source=source,
-                category=Category.INFRASTRUCTURE,
-                title="Holder",
-                value=holder,
-                source_url=source_url,
-            )
-        )
     if not findings:
         findings.append(
             make_finding(

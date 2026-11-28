@@ -203,3 +203,23 @@ def test_jsonl_roundtrip_has_stable_keys() -> None:
     assert parsed[0]["target_type"] == "domain"
     assert "\n" not in lines[0]
     assert render_jsonl(replace(report, sources=[])) == ""
+
+
+def test_csv_neutralises_formula_cells() -> None:
+    report = _two_finding_report()
+    finding = report.sources[0].findings[0]
+    risky = ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx"]
+    findings = [replace(finding, value=value) for value in risky]
+    text = render_csv(replace(report, sources=[replace(report.sources[0], findings=findings)]))
+    rows = list(csv.reader(io.StringIO(text, newline="")))
+    values = [row[COLUMNS.index("value")] for row in rows[1:]]
+    assert values == [f"'{value}" for value in risky]
+
+
+def test_jsonl_escapes_line_separators() -> None:
+    report = _two_finding_report()
+    finding = replace(report.sources[0].findings[0], value="a\u2028b\u2029c")
+    text = render_jsonl(replace(report, sources=[replace(report.sources[0], findings=[finding])]))
+    assert "\u2028" not in text and "\u2029" not in text
+    assert len(text.splitlines()) == 1
+    assert json.loads(text)["value"] == "a\u2028b\u2029c"

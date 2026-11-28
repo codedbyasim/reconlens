@@ -51,17 +51,15 @@ async def test_non_object_payload_is_an_error(mocked: respx.MockRouter, ctx: Run
         await RipeStatSource().run(_ip("1.1.1.1"), ctx)
 
 
-def test_mapping_handles_holder_cap_and_empty() -> None:
-    long_name = "H" * 500
+def test_mapping_handles_asn_filter_and_empty() -> None:
     findings = findings_from_network_info(
         "ripestat",
         "1.1.1.1",
-        {"data": {"asns": ["AS1", 2, "x", None], "prefix": "1.1.1.0/24", "holder": long_name}},
+        {"data": {"asns": ["AS1", 2, "x", None], "prefix": "1.1.1.0/24", "holder": "ignored"}},
         "https://stat.ripe.net/1.1.1.1",
     )
     values = [item.value for item in findings]
     assert "AS1" in values and "AS2" in values and "ASx" not in values
-    holder = next(item for item in findings if item.title == "Holder")
-    assert len(holder.value) <= 200
+    assert all(item.title != "Holder" for item in findings)
     empty = findings_from_network_info("ripestat", "1.1.1.1", {}, "https://stat.ripe.net/1.1.1.1")
     assert empty[0].title == "No network info"
