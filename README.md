@@ -130,11 +130,11 @@ when you are authorized to.
 
 | Source | Targets | Key | What it reads |
 | --- | --- | --- | --- |
-| `dns` | domain | none | A, AAAA, CNAME, MX, NS, TXT, SOA, CAA |
-| `email-auth` | email | none | MX, SPF, DMARC; BIMI, MTA-STS, and TLS-RPT when published |
+| `dns` | domain | none | A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, DS, DNSKEY |
+| `email-auth` | email | none | MX, SPF (with DNS mechanism count), DMARC; BIMI, MTA-STS (policy file fetched when the TXT exists), and TLS-RPT when published |
 | `rdap` | domain, ip | none | Registration data over RDAP (structured WHOIS) |
 | `ssl` | domain | none | The certificate from one TLS handshake to port 443 |
-| `crtsh` | domain | none | Unexpired names from the public crt.sh search |
+| `crtsh` | domain | none | Unexpired names and issuer counts from the public crt.sh search |
 | `http-headers` | domain | none | One HTTPS GET of the origin, then the response headers |
 | `robots` | domain | none | `robots.txt` and `security.txt`, summarized, links not followed |
 | `wayback` | domain | none | Recent public Wayback CDX snapshots (no new capture is requested) |
@@ -241,7 +241,7 @@ mkdocs serve
 ## Roadmap
 
 - RIPEstat, AlienVault OTX, and SecurityTrails as more passive sources.
-- DNSSEC checks, and fetching the MTA-STS policy file (the DNS record is already read).
+- DNSSEC chain validation (DS and DNSKEY presence is reported).
 - CSV and JSON Lines output, a batch file of targets, and a report diff.
 - A small self-contained filter on the HTML report.
 - `reconlens doctor`, which reports which keys are set without printing them.

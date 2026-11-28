@@ -134,8 +134,8 @@ Full chain validation and trust-anchor fetching. That can be a later issue.
 
 ### Done when
 
-- [ ] Both the present and absent cases have tests.
-- [ ] `make ci` passes.
+- [x] Both the present and absent cases have tests.
+- [x] `make ci` passes.
 
 ---
 
@@ -164,9 +164,9 @@ Enforcing the policy or connecting to the MX hosts.
 
 ### Done when
 
-- [ ] respx covers 200 and 404.
-- [ ] The "policy URL was not fetched" detail is updated.
-- [ ] `make ci` passes.
+- [x] respx covers 200 and 404.
+- [x] The "policy URL was not fetched" detail is updated.
+- [x] `make ci` passes.
 
 ---
 
@@ -345,8 +345,8 @@ Downloading the certificates themselves.
 
 ### Done when
 
-- [ ] Counts are correct in the test.
-- [ ] `make ci` passes.
+- [x] Counts are correct in the test.
+- [x] `make ci` passes.
 
 ---
 
@@ -376,5 +376,5 @@ Walking `include:` targets. That would multiply queries and is a different chang
 
 ### Done when
 
-- [ ] The count is covered without a resolver.
-- [ ] `make ci` passes.
+- [x] The count is covered without a resolver.
+- [x] `make ci` passes.
