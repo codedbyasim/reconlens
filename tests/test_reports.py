@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,8 +24,10 @@ from reconlens.models import (
     make_finding,
 )
 from reconlens.plugins.base import Source
+from reconlens.reports.csv_report import COLUMNS, render_csv
 from reconlens.reports.html import render_html
 from reconlens.reports.json_report import load_report, render_json, report_from_dict, report_to_dict
+from reconlens.reports.jsonl_report import render_jsonl
 from reconlens.reports.markdown import render_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,3 +140,66 @@ def test_cache_roundtrip(tmp_path: Path) -> None:
     assert stored[0].value == "1.1.1.1"
     mode = (tmp_path / "cache").stat().st_mode & 0o777
     assert mode == 0o700
+
+
+def _two_finding_report() -> Report:
+    base = _report()
+    when = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+    tricky = make_finding(
+        source="crtsh",
+        category="certificate",
+        title="Name",
+        value='a,b "quoted" c',
+        detail="line one\nline two",
+        timestamp=when,
+    )
+    plain = make_finding(source="crtsh", category="certificate", title="Name", value="x.test")
+    return Report(
+        target=base.target,
+        started_at=base.started_at,
+        finished_at=base.finished_at,
+        sources=[SourceRun("crtsh", "ok", 1, False, [tricky, plain])],
+        notices=[],
+        tool_version="0.1.0",
+    )
+
+
+def test_csv_header_and_escaping() -> None:
+    text = render_csv(_two_finding_report())
+    assert text.endswith("\n")
+    assert text.splitlines()[0] == ",".join(f'"{name}"' for name in COLUMNS)
+    rows = list(csv.reader(io.StringIO(text, newline="")))
+    assert tuple(rows[0]) == COLUMNS
+    assert len(rows) == 3
+    assert rows[1][COLUMNS.index("value")] == 'a,b "quoted" c'
+    assert rows[1][COLUMNS.index("detail")] == "line one\nline two"
+    assert rows[2][COLUMNS.index("detail")] == ""
+    assert rows[1][COLUMNS.index("severity")] == "info"
+
+
+def test_jsonl_roundtrip_has_stable_keys() -> None:
+    report = _two_finding_report()
+    text = render_jsonl(report)
+    lines = text.splitlines()
+    assert text.endswith("\n") and len(lines) == 2
+    parsed = [json.loads(line) for line in lines]
+    expected = [
+        "target",
+        "target_type",
+        "id",
+        "source",
+        "category",
+        "title",
+        "value",
+        "detail",
+        "severity",
+        "source_url",
+        "timestamp",
+        "data",
+    ]
+    assert all(list(item) == expected for item in parsed)
+    assert parsed[0]["value"] == 'a,b "quoted" c'
+    assert parsed[0]["target"] == "example.com"
+    assert parsed[0]["target_type"] == "domain"
+    assert "\n" not in lines[0]
+    assert render_jsonl(replace(report, sources=[])) == ""

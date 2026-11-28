@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ripestat` source: keyless prefix and ASN lookup for public IPs through the
   RIPEstat network-info endpoint. Private addresses are not sent.
+- `--output csv` (one row per finding) and `--output jsonl` (one finding object
+  per line, with `target` and `target_type`) report formats, also accepted by
+  `reconlens report`.
 
 ## [0.1.0] - 2026-11-22
 

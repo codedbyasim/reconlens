@@ -20,8 +20,10 @@ from reconlens.models import Report, Target
 from reconlens.plugins.registry import load_sources
 from reconlens.redact import scrub_text
 from reconlens.render import render_terminal
+from reconlens.reports.csv_report import render_csv
 from reconlens.reports.html import render_html
 from reconlens.reports.json_report import load_report, render_json
+from reconlens.reports.jsonl_report import render_jsonl
 from reconlens.reports.markdown import render_markdown
 from reconlens.runner import collect
 from reconlens.validate import domain_target, email_target, ip_target, username_target
@@ -68,7 +70,9 @@ def main(
 @app.command()
 def domain(
     target: str = typer.Argument(help="Domain name, such as example.com."),
-    output: str = typer.Option("text", "--output", help="Report format: text, md, html, or json."),
+    output: str = typer.Option(
+        "text", "--output", help="Report format: text, md, html, json, csv, or jsonl."
+    ),
     out: Path | None = typer.Option(None, "--out", help="Write the report to this file."),
     timeout: float | None = typer.Option(
         None, "--timeout", min=1, max=120, help="Seconds to wait for each source."
@@ -103,7 +107,9 @@ def domain(
 @app.command()
 def ip(
     target: str = typer.Argument(help="IP address, such as 1.1.1.1."),
-    output: str = typer.Option("text", "--output", help="Report format: text, md, html, or json."),
+    output: str = typer.Option(
+        "text", "--output", help="Report format: text, md, html, json, csv, or jsonl."
+    ),
     out: Path | None = typer.Option(None, "--out", help="Write the report to this file."),
     timeout: float | None = typer.Option(
         None, "--timeout", min=1, max=120, help="Seconds to wait for each source."
@@ -138,7 +144,9 @@ def ip(
 @app.command()
 def email(
     target: str = typer.Argument(help="Email address, such as user@example.com."),
-    output: str = typer.Option("text", "--output", help="Report format: text, md, html, or json."),
+    output: str = typer.Option(
+        "text", "--output", help="Report format: text, md, html, json, csv, or jsonl."
+    ),
     out: Path | None = typer.Option(None, "--out", help="Write the report to this file."),
     timeout: float | None = typer.Option(
         None, "--timeout", min=1, max=120, help="Seconds to wait for each source."
@@ -177,7 +185,9 @@ def email(
 @app.command()
 def username(
     target: str = typer.Argument(help="Username, such as octocat."),
-    output: str = typer.Option("text", "--output", help="Report format: text, md, html, or json."),
+    output: str = typer.Option(
+        "text", "--output", help="Report format: text, md, html, json, csv, or jsonl."
+    ),
     out: Path | None = typer.Option(None, "--out", help="Write the report to this file."),
     timeout: float | None = typer.Option(
         None, "--timeout", min=1, max=120, help="Seconds to wait for each source."
@@ -262,16 +272,18 @@ def report_cmd(
         readable=True,
         help="JSON report from a previous run.",
     ),
-    output: str = typer.Option("md", "--output", help="Format to write: md, html, or json."),
+    output: str = typer.Option(
+        "md", "--output", help="Format to write: md, html, json, csv, or jsonl."
+    ),
     out: Path | None = typer.Option(None, "--out", help="Write the rendered report to this file."),
 ) -> None:
-    """Render a saved JSON report as Markdown, HTML, or JSON."""
+    """Render a saved JSON report as Markdown, HTML, JSON, CSV, or JSON Lines."""
 
     try:
         fmt = _format(output)
         if fmt == "text":
             raise UsageError(
-                "reconlens report writes md, html, or json. Omit --output for Markdown."
+                "reconlens report writes md, html, json, csv, or jsonl. Omit --output for Markdown."
             )
         document = load_report(input_path.read_text(encoding="utf-8"))
         _emit(document, fmt, out, quiet=False, allow_text=False)
@@ -341,11 +353,18 @@ def _emit(report: Report, fmt: str, out: Path | None, *, quiet: bool, allow_text
         if not allow_text:
             raise UsageError("this command does not write the text format")
         if out is not None:
-            raise UsageError("pass --output md, html, or json when using --out")
+            raise UsageError("pass --output md, html, json, csv, or jsonl when using --out")
         if not quiet:
             render_terminal(report, Console(highlight=False, emoji=False))
         return
-    payload = {"md": render_markdown, "html": render_html, "json": render_json}[fmt](report)
+    renderers: dict[str, Callable[[Report], str]] = {
+        "md": render_markdown,
+        "html": render_html,
+        "json": render_json,
+        "csv": render_csv,
+        "jsonl": render_jsonl,
+    }
+    payload = renderers[fmt](report)
     if out is not None:
         if out.exists() and out.is_dir():
             raise UsageError(f"--out is a directory: {out}")
@@ -373,8 +392,8 @@ def _format(value: str) -> str:
     name = value.strip().lower()
     if name == "markdown":
         name = "md"
-    if name not in {"text", "md", "html", "json"}:
-        raise UsageError("--output must be text, md, html, or json")
+    if name not in {"text", "md", "html", "json", "csv", "jsonl"}:
+        raise UsageError("--output must be text, md, html, json, csv, or jsonl")
     return name
 
 

@@ -199,3 +199,38 @@ def test_report_command_renders_markdown(
     text = markdown.read_text(encoding="utf-8")
     assert "example.com" in text
     assert "93.184.216.34" in text
+
+
+def test_csv_and_jsonl_outputs_via_scan_and_report(
+    tmp_path: Path, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_dns(monkeypatch)
+    _patch_tls(monkeypatch)
+    _mock_domain(mocked)
+    saved = tmp_path / "report.json"
+    first = runner.invoke(
+        app, ["domain", "example.com", "--output", "json", "--out", str(saved), "--quiet"]
+    )
+    assert first.exit_code == 0, first.stdout + first.stderr
+    csv_path = tmp_path / "report.csv"
+    csv_result = runner.invoke(
+        app, ["report", "--input", str(saved), "--output", "csv", "--out", str(csv_path)]
+    )
+    assert csv_result.exit_code == 0, csv_result.stdout + csv_result.stderr
+    assert csv_path.read_text(encoding="utf-8").startswith('"source","category"')
+    jsonl = runner.invoke(app, ["report", "--input", str(saved), "--output", "jsonl"])
+    assert jsonl.exit_code == 0, jsonl.stdout + jsonl.stderr
+    rows = [json.loads(line) for line in jsonl.stdout.splitlines()]
+    assert rows and all(row["target"] == "example.com" for row in rows)
+
+
+def test_scan_accepts_csv_output(mocked: object) -> None:
+    mocked.get(url__regex=r"https://rdap\.org/ip/10\.0\.0\.1").mock(  # type: ignore[attr-defined]
+        return_value=httpx.Response(200, json={"handle": "NET-10", "name": "PRIVATE"})
+    )
+    result = runner.invoke(app, ["ip", "10.0.0.1", "--output", "csv", "--quiet"])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stdout.startswith('"source","category","severity"')
+    again = runner.invoke(app, ["ip", "10.0.0.1", "--output", "jsonl", "--quiet"])
+    assert again.exit_code == 0
+    assert json.loads(again.stdout.splitlines()[0])["target_type"] == "ip"

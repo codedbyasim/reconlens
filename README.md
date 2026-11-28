@@ -83,8 +83,9 @@ reconlens domain example.com --output html --out example.html
 reconlens report --input example.json --output md --out example.md
 ```
 
-`--output` is `text` (the default Rich view), `md`, `html`, or `json`.
-`--out` writes `md`, `html`, or `json` to a file. JSON on stdout stays clean
+`--output` is `text` (the default Rich view), `md`, `html`, `json`, `csv`, or
+`jsonl`.
+`--out` writes `md`, `html`, `json`, `csv`, or `jsonl` to a file. JSON on stdout stays clean
 so you can pipe it. `--quiet` skips the terminal summary.
 
 Exit codes: `0` when the run finished (individual source failures are reported,
@@ -155,6 +156,8 @@ treat it as the same person.
 | JSON | `--output json --out report.json` |
 | Markdown | `--output md --out report.md` |
 | HTML | `--output html --out report.html` |
+| CSV | `--output csv --out report.csv` (one row per finding) |
+| JSON Lines | `--output jsonl --out report.jsonl` (one finding per line) |
 
 The HTML report is one file: the stylesheet is inline, and there are no remote
 fonts or scripts. The JSON shape is

@@ -47,7 +47,7 @@ Been Pwned, reject clients that do not identify themselves.
 | Flag | Meaning |
 | --- | --- |
 | `--output text\|md\|html\|json` | Report format. `markdown` is accepted as `md` |
-| `--out PATH` | Write md, html, or json. Not valid with `text` |
+| `--out PATH` | Write md, html, json, csv, or jsonl. Not valid with `text` |
 | `--sources a,b` | Only these sources. Unknown names are an error |
 | `--exclude a,b` | Skip these sources |
 | `--quiet` | Skip the terminal summary |
