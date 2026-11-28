@@ -134,8 +134,8 @@ Full chain validation and trust-anchor fetching. That can be a later issue.
 
 ### Done when
 
-- [ ] Both the present and absent cases have tests.
-- [ ] `make ci` passes.
+- [x] Both the present and absent cases have tests.
+- [x] `make ci` passes.
 
 ---
 
@@ -164,9 +164,9 @@ Enforcing the policy or connecting to the MX hosts.
 
 ### Done when
 
-- [ ] respx covers 200 and 404.
-- [ ] The "policy URL was not fetched" detail is updated.
-- [ ] `make ci` passes.
+- [x] respx covers 200 and 404.
+- [x] The "policy URL was not fetched" detail is updated.
+- [x] `make ci` passes.
 
 ---
 
@@ -225,71 +225,6 @@ Streaming the CLI before sources finish. Buffer the report, then write lines.
 ### Done when
 
 - [ ] Round-trip test: two findings, two lines, stable keys.
-- [ ] `make ci` passes.
-
----
-
-## 8. Batch file
-
-**Title:** Add reconlens batch for a file of targets
-
-**Labels:** good first issue, help wanted
-
-### Summary
-
-`reconlens batch targets.txt --type domain` runs the domain sources for each
-non-empty, non-comment line.
-
-### Scope
-
-- One target per line. `#` comments and blank lines ignored.
-- `--type domain|ip|email|username` is required.
-- A bad line is recorded and the file continues.
-- Default delay of 1 second between targets, flag `--delay`.
-- JSON output is a list of report objects. Say so in `docs/reports.md` as a
-  batch document, not a change to schema 1.x for a single report.
-- Cap is not required, but print how many targets will run before starting.
-
-### Out of scope
-
-Mixing types in one file. Parallel targets. The per-target sources stay
-parallel, as they are today.
-
-### Done when
-
-- [ ] A three-line file with one comment and one invalid line produces two
-  reports and one notice, against mocks.
-- [ ] `make ci` passes.
-
----
-
-## 9. Report diff
-
-**Title:** Add reconlens diff for two JSON reports
-
-**Labels:** good first issue, help wanted
-
-### Summary
-
-`reconlens diff --before a.json --after b.json` prints findings whose ids
-appeared, disappeared, or changed severity.
-
-### Scope
-
-- Both files must be schema 1.x and the same target value.
-- Match on finding `id`.
-- Text output: three sections, Added, Removed, Severity changed.
-- `--output json` writes `{added, removed, severity_changed}`.
-- Exit 0 when the files parse, even if they differ. Exit 2 when the targets
-  differ or the JSON is unreadable.
-
-### Out of scope
-
-A human-readable HTML diff.
-
-### Done when
-
-- [ ] Tests cover an added finding, a removed finding, and a target mismatch.
 - [ ] `make ci` passes.
 
 ---
@@ -410,38 +345,8 @@ Downloading the certificates themselves.
 
 ### Done when
 
-- [ ] Counts are correct in the test.
-- [ ] `make ci` passes.
-
----
-
-## 14. reconlens doctor
-
-**Title:** Add reconlens doctor to check config without printing secrets
-
-**Labels:** good first issue, help wanted
-
-### Summary
-
-`reconlens doctor` prints the config path it would read, whether the cache
-directory is writable, and which key variables are set. Values stay hidden.
-
-### Scope
-
-- Exit 0 when config parses.
-- Exit 2 when `RECONLENS_CONFIG` points at a missing or invalid file.
-- A test sets `VIRUSTOTAL_API_KEY` to a long dummy and asserts the dummy is
-  absent from stdout and stderr, while `key set` is present.
-- Mention the command in the README.
-
-### Out of scope
-
-Network calls. Doctor does not contact the providers.
-
-### Done when
-
-- [ ] The secret-leak test is in `tests/test_cli.py`.
-- [ ] `make ci` passes.
+- [x] Counts are correct in the test.
+- [x] `make ci` passes.
 
 ---
 
@@ -471,5 +376,5 @@ Walking `include:` targets. That would multiply queries and is a different chang
 
 ### Done when
 
-- [ ] The count is covered without a resolver.
-- [ ] `make ci` passes.
+- [x] The count is covered without a resolver.
+- [x] `make ci` passes.

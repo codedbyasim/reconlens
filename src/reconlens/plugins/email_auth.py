@@ -1,6 +1,8 @@
 """MX, SPF, and DMARC, plus optional BIMI, MTA-STS, and TLS-RPT records.
 
-All of this is DNS. Policy files at https://mta-sts.<domain>/ are not fetched.
+All of this is DNS, except the MTA-STS policy file at
+https://mta-sts.<domain>/.well-known/mta-sts.txt. It is fetched only when a
+``v=STSv1`` TXT record exists.
 """
 
 from __future__ import annotations
@@ -14,7 +16,11 @@ from reconlens.dnsutil import DnsAnswer
 from reconlens.errors import SourceError
 from reconlens.models import Category, Finding, Severity, Target, TargetType, make_finding
 from reconlens.plugins.base import Source
+from reconlens.textutil import clip
 
+_SPF_DNS_LIMIT = 10
+_SPF_DNS_TERMS = frozenset({"include", "a", "mx", "ptr", "exists", "redirect"})
+_MTA_STS_BODY_LIMIT = 20_000
 _ALL = re.compile(r"(?:^|\s)(\+|-|~|\?)all(?:$|\s)", re.IGNORECASE)
 
 
@@ -41,7 +47,29 @@ class EmailAuthSource(Source):
         answers = await asyncio.gather(
             *(dnsutil.resolve(name, rtype, ctx.timeout) for name, rtype in queries)
         )
-        return findings_from_mail(self.name, domain, list(answers))
+        findings = findings_from_mail(self.name, domain, list(answers))
+        if any(value.lower().startswith("v=stsv1") for value in _values(answers[4])):
+            try:
+                findings.extend(await self._mta_sts_policy(domain, ctx))
+            except SourceError as exc:
+                findings.append(
+                    make_finding(
+                        source=self.name,
+                        category=Category.EMAIL,
+                        title="MTA-STS policy not available",
+                        value=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
+                        detail=clip(
+                            f"A v=STSv1 TXT record exists but the fetch failed: {exc}", 300
+                        ),
+                        severity=Severity.LOW,
+                    )
+                )
+        return findings
+
+    async def _mta_sts_policy(self, domain: str, ctx: RunContext) -> list[Finding]:
+        url = f"https://mta-sts.{domain}/.well-known/mta-sts.txt"
+        response = await ctx.get_public(url, source=self.name, min_interval=0.0)
+        return findings_from_mta_sts(self.name, url, response.status_code, response.text)
 
 
 def findings_from_mail(source: str, domain: str, answers: list[DnsAnswer]) -> list[Finding]:
@@ -59,6 +87,83 @@ def findings_from_mail(source: str, domain: str, answers: list[DnsAnswer]) -> li
     findings.extend(_optional_txt(source, "BIMI", bimi))
     findings.extend(_optional_txt(source, "MTA-STS", mta_sts))
     findings.extend(_optional_txt(source, "TLS-RPT", tls_rpt))
+    return findings
+
+
+def count_spf_dns_mechanisms(record: str) -> int:
+    """Count terms that cost a DNS lookup (RFC 7208 section 4.6.4). Nothing is resolved."""
+
+    count = 0
+    for term in record.split()[1:]:
+        text = term.lstrip("+-~?").lower()
+        if "=" in text.split(":", 1)[0]:
+            name = text.split("=", 1)[0]
+        else:
+            name = re.split(r"[:/=]", text, maxsplit=1)[0]
+        if name in _SPF_DNS_TERMS:
+            count += 1
+    return count
+
+
+def findings_from_mta_sts(source: str, url: str, status: int, body: str) -> list[Finding]:
+    """Interpret an MTA-STS policy response. A missing file is a finding, not an error."""
+
+    if status == 404:
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="MTA-STS policy not found",
+                value=url,
+                detail="A v=STSv1 TXT record exists but the policy file returned HTTP 404.",
+                severity=Severity.LOW,
+                source_url=url,
+            )
+        ]
+    if status >= 400:
+        return [
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="MTA-STS policy not available",
+                value=url,
+                detail=f"The policy file returned HTTP {status}.",
+                severity=Severity.LOW,
+                source_url=url,
+            )
+        ]
+    fields: dict[str, list[str]] = {}
+    for line in body[:_MTA_STS_BODY_LIMIT].splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        if key in {"mode", "mx", "max_age"} and value.strip():
+            fields.setdefault(key, []).append(value.strip())
+    titles = {"mode": "MTA-STS mode", "mx": "MTA-STS mx", "max_age": "MTA-STS max_age"}
+    findings = [
+        make_finding(
+            source=source,
+            category=Category.EMAIL,
+            title=titles[key],
+            value=clip(value, 200),
+            source_url=url,
+        )
+        for key in ("mode", "mx", "max_age")
+        for value in fields.get(key, [])[:10]
+    ]
+    if not findings:
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.EMAIL,
+                title="MTA-STS policy empty",
+                value=url,
+                detail="The policy file has no mode, mx, or max_age fields.",
+                severity=Severity.LOW,
+                source_url=url,
+            )
+        )
     return findings
 
 
@@ -168,6 +273,22 @@ def _spf_findings(source: str, records: list[str]) -> list[Finding]:
                 severity=severity,
             )
         )
+        lookups = count_spf_dns_mechanisms(record)
+        if lookups > _SPF_DNS_LIMIT:
+            findings.append(
+                make_finding(
+                    source=source,
+                    category=Category.EMAIL,
+                    title="SPF top-level DNS mechanisms exceed 10",
+                    value=str(lookups),
+                    detail=(
+                        "RFC 7208 allows 10 DNS-based mechanisms. This counts only terms "
+                        "written in the record itself. Includes were not resolved, so the "
+                        "real total can be higher."
+                    ),
+                    severity=Severity.LOW,
+                )
+            )
     return findings
 
 
@@ -284,7 +405,7 @@ def _optional_txt(source: str, title: str, answer: DnsAnswer) -> list[Finding]:
                 category=Category.EMAIL,
                 title=title,
                 value=value,
-                detail="Published as DNS TXT. The policy URL was not fetched.",
+                detail="Published as DNS TXT.",
             )
         )
     return findings

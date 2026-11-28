@@ -78,10 +78,19 @@ reconlens ip 1.1.1.1
 reconlens email user@example.com
 reconlens username octocat
 reconlens sources
+reconlens doctor
+reconlens batch targets.txt --type domain --delay 1 --output json
+reconlens diff --before old.json --after new.json
 reconlens domain example.com --output json --out example.json
 reconlens domain example.com --output html --out example.html
 reconlens report --input example.json --output md --out example.md
 ```
+
+`reconlens doctor` checks the config file, cache directory, and which key variables are
+set. It prints names only, never values, and makes no network calls.
+`reconlens batch` runs one target type per file (`#` comments and blank lines are skipped,
+bad lines are noted on stderr). `reconlens diff` compares two JSON reports of the same
+target by finding id and exits 2 on a target mismatch or unreadable file.
 
 `--output` is `text` (the default Rich view), `md`, `html`, `json`, `csv`, or
 `jsonl`.
@@ -121,16 +130,16 @@ when you are authorized to.
 
 | Source | Targets | Key | What it reads |
 | --- | --- | --- | --- |
-| `dns` | domain | none | A, AAAA, CNAME, MX, NS, TXT, SOA, CAA |
-| `email-auth` | email | none | MX, SPF, DMARC; BIMI, MTA-STS, and TLS-RPT when published |
+| `dns` | domain | none | A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, DS, DNSKEY |
+| `email-auth` | email | none | MX, SPF (with DNS mechanism count), DMARC; BIMI, MTA-STS (policy file fetched when the TXT exists), and TLS-RPT when published |
 | `rdap` | domain, ip | none | Registration data over RDAP (structured WHOIS) |
 | `ssl` | domain | none | The certificate from one TLS handshake to port 443 |
-| `crtsh` | domain | none | Unexpired names from the public crt.sh search |
+| `crtsh` | domain | none | Unexpired names and issuer counts from the public crt.sh search |
 | `http-headers` | domain | none | One HTTPS GET of the origin, then the response headers |
 | `robots` | domain | none | `robots.txt` and `security.txt`, summarized, links not followed |
 | `wayback` | domain | none | Recent public Wayback CDX snapshots (no new capture is requested) |
 | `ip-geo` | ip | none | Country, network, and ASN from ipwho.is. Private addresses are not sent |
-| `ripestat` | ip | none | Prefix and ASN from RIPEstat network-info. Private addresses are not sent |
+| `ripestat` | ip | none | Prefix and origin ASN from RIPEstat network-info (no holder name). Private addresses are not sent |
 | `gravatar` | email | none | Whether Gravatar has an image (the MD5 avatar URL) |
 | `username` | username | none | Public profile URLs from a small curated list |
 | `virustotal` | domain, ip | `VIRUSTOTAL_API_KEY` | Existing reputation. Nothing is submitted for analysis |
@@ -232,7 +241,7 @@ mkdocs serve
 ## Roadmap
 
 - RIPEstat, AlienVault OTX, and SecurityTrails as more passive sources.
-- DNSSEC checks, and fetching the MTA-STS policy file (the DNS record is already read).
+- DNSSEC chain validation (DS and DNSKEY presence is reported).
 - CSV and JSON Lines output, a batch file of targets, and a report diff.
 - A small self-contained filter on the HTML report.
 - `reconlens doctor`, which reports which keys are set without printing them.

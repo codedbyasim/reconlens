@@ -19,11 +19,15 @@ from cryptography.x509.oid import NameOID
 from reconlens import dnsutil
 from reconlens.dnsutil import DnsAnswer
 from reconlens.errors import SourceError
-from reconlens.models import Severity, Target, TargetType
+from reconlens.models import Finding, Severity, Target, TargetType
 from reconlens.plugins.abuseipdb import AbuseIpdbSource
-from reconlens.plugins.crtsh import names_from_ct
+from reconlens.plugins.crtsh import findings_from_ct, names_from_ct
 from reconlens.plugins.dns_records import DnsSource, findings_from_dns
-from reconlens.plugins.email_auth import findings_from_mail
+from reconlens.plugins.email_auth import (
+    EmailAuthSource,
+    count_spf_dns_mechanisms,
+    findings_from_mail,
+)
 from reconlens.plugins.gravatar import GravatarSource, gravatar_hash
 from reconlens.plugins.hibp import HibpSource
 from reconlens.plugins.http_headers import findings_from_headers
@@ -455,3 +459,141 @@ async def test_username_source_stops_after_429(
     assert findings[0].value == "inconclusive"
     assert findings[1].value == "inconclusive"
     assert "429" in (findings[1].detail or "")
+
+
+def test_dnssec_records_present_and_absent() -> None:
+    present = findings_from_dns(
+        "dns",
+        "example.com",
+        [
+            DnsAnswer("example.com", "DS", ["12345 13 2 ABCDEF"], None),
+            DnsAnswer("example.com", "DNSKEY", ["257 3 13 KEY"], None),
+        ],
+    )
+    assert {item.title for item in present} == {"DS", "DNSKEY"}
+    absent = findings_from_dns(
+        "dns",
+        "example.com",
+        [
+            DnsAnswer("example.com", "A", ["192.0.2.1"], None),
+            DnsAnswer("example.com", "DS", [], "noanswer"),
+            DnsAnswer("example.com", "DNSKEY", [], "noanswer"),
+        ],
+    )
+    dnssec = [item for item in absent if item.title == "No DNSSEC records"]
+    assert len(dnssec) == 1
+    assert dnssec[0].severity is Severity.INFO
+
+
+def test_spf_mechanism_count() -> None:
+    assert count_spf_dns_mechanisms("v=spf1 include:a.test include:b.test -all") == 2
+    assert count_spf_dns_mechanisms("v=spf1 ip4:192.0.2.0/24 a mx:x.test ~all") == 2
+    assert count_spf_dns_mechanisms("v=spf1 redirect=_spf.test") == 1
+    many = "v=spf1 " + " ".join(f"include:s{n}.test" for n in range(11)) + " +all"
+    assert count_spf_dns_mechanisms(many) == 11
+
+
+def _mail_answers(spf: str) -> list[DnsAnswer]:
+    return [
+        DnsAnswer("example.com", "MX", [], "noanswer"),
+        DnsAnswer("example.com", "TXT", [spf], None),
+        DnsAnswer("_dmarc.example.com", "TXT", [], "noanswer"),
+        DnsAnswer("bimi", "TXT", [], "noanswer"),
+        DnsAnswer("mta", "TXT", [], "noanswer"),
+        DnsAnswer("tls", "TXT", [], "noanswer"),
+    ]
+
+
+def test_spf_many_mechanisms_finding_is_additional() -> None:
+    many = "v=spf1 " + " ".join(f"include:s{n}.test" for n in range(11)) + " +all"
+    findings = findings_from_mail("email-auth", "example.com", _mail_answers(many))
+    titles = [item.title for item in findings]
+    assert "SPF allows any sender" in titles
+    flagged = [item for item in findings if item.title == "SPF top-level DNS mechanisms exceed 10"]
+    assert flagged[0].value == "11"
+    assert flagged[0].severity is Severity.LOW
+    few = findings_from_mail(
+        "email-auth", "example.com", _mail_answers("v=spf1 include:a.test -all")
+    )
+    assert all(item.title != "SPF top-level DNS mechanisms exceed 10" for item in few)
+
+
+async def _run_email(ctx: object, monkeypatch: pytest.MonkeyPatch, sts: bool) -> list[Finding]:
+    from reconlens.context import RunContext
+
+    assert isinstance(ctx, RunContext)
+
+    async def fake_resolve(name: str, rtype: str, timeout: float) -> DnsAnswer:
+        del timeout
+        if sts and name.startswith("_mta-sts."):
+            return DnsAnswer(name, rtype, ["v=STSv1; id=1"], None)
+        return DnsAnswer(name, rtype, [], "noanswer")
+
+    monkeypatch.setattr(dnsutil, "resolve", fake_resolve)
+    target = Target("user@example.com", TargetType.EMAIL, "user@example.com")
+    return await EmailAuthSource().run(target, ctx)
+
+
+async def test_mta_sts_policy_fetched(
+    ctx: object, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mocked.get("https://mta-sts.example.com/.well-known/mta-sts.txt").mock(  # type: ignore[attr-defined]
+        return_value=httpx.Response(
+            200, text="version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 86400\n"
+        )
+    )
+    findings = await _run_email(ctx, monkeypatch, True)
+    got = {item.title: item.value for item in findings if item.title.startswith("MTA-STS ")}
+    assert got == {
+        "MTA-STS mode": "enforce",
+        "MTA-STS mx": "mail.example.com",
+        "MTA-STS max_age": "86400",
+    }
+
+
+async def test_mta_sts_policy_404_is_a_finding(
+    ctx: object, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mocked.get("https://mta-sts.example.com/.well-known/mta-sts.txt").mock(  # type: ignore[attr-defined]
+        return_value=httpx.Response(404)
+    )
+    findings = await _run_email(ctx, monkeypatch, True)
+    assert any(item.title == "MTA-STS policy not found" for item in findings)
+
+
+async def test_mta_sts_transport_error_keeps_dns_findings(
+    ctx: object, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mocked.get("https://mta-sts.example.com/.well-known/mta-sts.txt").mock(  # type: ignore[attr-defined]
+        side_effect=httpx.ConnectError("boom")
+    )
+    findings = await _run_email(ctx, monkeypatch, True)
+    titles = [item.title for item in findings]
+    assert "MTA-STS policy not available" in titles
+    assert "MTA-STS" in titles
+
+
+async def test_mta_sts_not_fetched_without_txt(
+    ctx: object, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    findings = await _run_email(ctx, monkeypatch, False)
+    assert all("MTA-STS" not in item.title for item in findings)
+
+
+def test_crtsh_issuer_summary() -> None:
+    rows = [
+        {"name_value": "a.example.com", "issuer_name": "C=US, O=Let's Encrypt, CN=R3"},
+        {
+            "name_value": "b.example.com\nc.example.com",
+            "issuer_name": "C=US, O=Let's Encrypt, CN=R3",
+        },
+        {"name_value": "d.example.com", "issuer_name": "C=US, O=Other CA, CN=X"},
+        {"name_value": "elsewhere.test", "issuer_name": "C=US, O=Ignored, CN=Z"},
+    ]
+    findings = findings_from_ct("crtsh", "example.com", rows)
+    issuers = {item.value: item.detail for item in findings if item.title == "Issuer"}
+    assert issuers == {
+        "C=US, O=Let's Encrypt, CN=R3": "3 names",
+        "C=US, O=Other CA, CN=X": "1 names",
+    }
+    assert sum(1 for item in findings if item.title == "Certificate name") == 4

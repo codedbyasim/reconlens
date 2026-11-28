@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from reconlens.context import RunContext
@@ -11,6 +12,7 @@ from reconlens.net import json_body
 from reconlens.plugins.base import Source
 
 _CAP = 200
+_ISSUER_CAP = 10
 
 
 class CrtShSource(Source):
@@ -50,6 +52,13 @@ class CrtShSource(Source):
 def names_from_ct(domain: str, rows: list[Any]) -> list[str]:
     """Unique hostnames from crt.sh rows that belong to ``domain``."""
 
+    return _scan_ct(domain, rows)[0]
+
+
+def _scan_ct(domain: str, rows: list[Any]) -> tuple[list[str], Counter[str]]:
+    """Hostnames plus a count of new names per issuer."""
+
+    issuers: Counter[str] = Counter()
     found: list[str] = []
     seen: set[str] = set()
     suffix = "." + domain.lower()
@@ -70,13 +79,16 @@ def names_from_ct(domain: str, rows: list[Any]) -> list[str]:
                 continue
             seen.add(name)
             found.append(name)
+            issuer = row.get("issuer_name")
+            if isinstance(issuer, str) and issuer.strip():
+                issuers[" ".join(issuer.split())] += 1
             if len(found) >= _CAP:
-                return found
-    return found
+                return found, issuers
+    return found, issuers
 
 
 def findings_from_ct(source: str, domain: str, rows: list[Any]) -> list[Finding]:
-    names = names_from_ct(domain, rows)
+    names, issuers = _scan_ct(domain, rows)
     if not names:
         return _empty(source, domain)
     reference = f"https://crt.sh/?q={domain}"
@@ -91,6 +103,17 @@ def findings_from_ct(source: str, domain: str, rows: list[Any]) -> list[Finding]
         )
         for name in names
     ]
+    for issuer, count in issuers.most_common(_ISSUER_CAP):
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.CERTIFICATE,
+                title="Issuer",
+                value=issuer,
+                detail=f"{count} names",
+                source_url=reference,
+            )
+        )
     if len(names) >= _CAP:
         findings.append(
             make_finding(

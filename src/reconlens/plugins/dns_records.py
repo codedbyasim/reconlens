@@ -11,14 +11,14 @@ from reconlens.errors import SourceError
 from reconlens.models import Category, Finding, Severity, Target, TargetType, make_finding
 from reconlens.plugins.base import Source
 
-RECORD_TYPES = ("A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA")
+RECORD_TYPES = ("A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA", "DS", "DNSKEY")
 
 
 class DnsSource(Source):
     """Authoritative-looking answers from the system resolver, one query per type."""
 
     name = "dns"
-    description = "DNS records: A, AAAA, CNAME, MX, NS, TXT, SOA, and CAA"
+    description = "DNS records: A, AAAA, CNAME, MX, NS, TXT, SOA, CAA, DS, and DNSKEY"
     target_types = frozenset({TargetType.DOMAIN})
     min_interval_seconds = 0.0
     display_order = 10
@@ -86,6 +86,17 @@ def findings_from_dns(source: str, domain: str, answers: list[DnsAnswer]) -> lis
                 title="No DNS records",
                 value=domain,
                 detail="The resolver returned no records for the queried types.",
+            )
+        )
+    dnssec = [item for item in answers if item.rtype in {"DS", "DNSKEY"}]
+    if len(dnssec) == 2 and all(item.error == "noanswer" for item in dnssec):
+        findings.append(
+            make_finding(
+                source=source,
+                category=Category.DNS,
+                title="No DNSSEC records",
+                value=domain,
+                detail="No DS or DNSKEY records were published. The chain was not validated.",
             )
         )
     return findings

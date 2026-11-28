@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `dns` reports DS and DNSKEY, with an info finding when neither is published.
+- `email-auth` fetches the MTA-STS policy file when a `v=STSv1` TXT exists and
+  flags SPF records with more than 10 DNS-based mechanisms.
+- `diff` also reports findings whose detail text changed. `batch` exits 2 when
+  no valid targets parse and rejects files over 1000 lines. An unreachable
+  MTA-STS host now yields a low finding instead of failing `email-auth`.
+- `crtsh` adds up to 10 issuer findings with name counts.
 - `ripestat` source: keyless prefix and ASN lookup for public IPs through the
   RIPEstat network-info endpoint. Private addresses are not sent.
 - `--output csv` (one row per finding) and `--output jsonl` (one finding object
