@@ -296,6 +296,7 @@ def report_cmd(
         _fail(str(exc), code=2)
 
 
+_BATCH_MAX_LINES = 1000
 _BATCH_PARSERS: dict[str, Callable[[str], Target]] = {
     "domain": domain_target,
     "ip": ip_target,
@@ -337,6 +338,8 @@ def batch_cmd(
         if fmt not in {"text", "json"}:
             raise UsageError("batch --output must be text or json")
         lines = file.read_text(encoding="utf-8").splitlines()
+        if len(lines) > _BATCH_MAX_LINES:
+            raise UsageError(f"batch files are limited to {_BATCH_MAX_LINES} lines")
         config = _runtime_config(timeout=timeout, cache=cache)
     except (UsageError, ConfigError, OSError, UnicodeDecodeError) as exc:
         _fail(str(exc), code=2)
@@ -350,6 +353,8 @@ def batch_cmd(
             targets.append(parser(line))
         except TargetError as exc:
             err.print(f"notice: line {number} skipped: {escape(scrub_text(str(exc), []))}")
+    if not targets:
+        _fail("no valid targets found in the file", code=2)
     err.print(f"Running {len(targets)} {kind} target(s)")
     reports: list[Report] = []
     for index, target in enumerate(targets):
@@ -371,7 +376,11 @@ def diff_cmd(
     after: Path = typer.Option(..., "--after", help="Later JSON report."),
     output: str = typer.Option("text", "--output", help="Format: text or json."),
 ) -> None:
-    """Compare two JSON reports for the same target by finding id."""
+    """Compare two JSON reports for the same target.
+
+    Findings are matched by id (source, category, title, value). A matched finding
+    is reported when its severity or detail text changed.
+    """
 
     try:
         fmt = output.strip().lower()
@@ -399,11 +408,26 @@ def diff_cmd(
         for i in new_map
         if i in old_map and old_map[i].severity != new_map[i].severity
     ]
+    detail_changed = [
+        _brief(new_map[i])
+        for i in new_map
+        if i in old_map and old_map[i].detail != new_map[i].detail
+    ]
     if fmt == "json":
-        payload = {"added": added, "removed": removed, "severity_changed": changed}
+        payload = {
+            "added": added,
+            "removed": removed,
+            "severity_changed": changed,
+            "detail_changed": detail_changed,
+        }
         sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
         return
-    for title, rows in (("Added", added), ("Removed", removed), ("Severity changed", changed)):
+    for title, rows in (
+        ("Added", added),
+        ("Removed", removed),
+        ("Severity changed", changed),
+        ("Detail changed", detail_changed),
+    ):
         typer.echo(f"{title} ({len(rows)})")
         for row in rows:
             extra = f" {row['before']} -> {row['after']}" if "before" in row else ""

@@ -49,7 +49,21 @@ class EmailAuthSource(Source):
         )
         findings = findings_from_mail(self.name, domain, list(answers))
         if any(value.lower().startswith("v=stsv1") for value in _values(answers[4])):
-            findings.extend(await self._mta_sts_policy(domain, ctx))
+            try:
+                findings.extend(await self._mta_sts_policy(domain, ctx))
+            except SourceError as exc:
+                findings.append(
+                    make_finding(
+                        source=self.name,
+                        category=Category.EMAIL,
+                        title="MTA-STS policy not available",
+                        value=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
+                        detail=clip(
+                            f"A v=STSv1 TXT record exists but the fetch failed: {exc}", 300
+                        ),
+                        severity=Severity.LOW,
+                    )
+                )
         return findings
 
     async def _mta_sts_policy(self, domain: str, ctx: RunContext) -> list[Finding]:
@@ -265,9 +279,13 @@ def _spf_findings(source: str, records: list[str]) -> list[Finding]:
                 make_finding(
                     source=source,
                     category=Category.EMAIL,
-                    title="SPF has many DNS mechanisms",
+                    title="SPF top-level DNS mechanisms exceed 10",
                     value=str(lookups),
-                    detail="RFC 7208 allows 10 DNS-based mechanisms. Nothing was resolved.",
+                    detail=(
+                        "RFC 7208 allows 10 DNS-based mechanisms. This counts only terms "
+                        "written in the record itself. Includes were not resolved, so the "
+                        "real total can be higher."
+                    ),
                     severity=Severity.LOW,
                 )
             )

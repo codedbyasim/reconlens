@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -288,6 +289,37 @@ def test_batch_rejects_unknown_type_and_missing_file(tmp_path: Path) -> None:
     assert (
         runner.invoke(app, ["batch", str(tmp_path / "no.txt"), "--type", "domain"]).exit_code == 2
     )
+
+
+def test_batch_exits_nonzero_without_valid_targets(tmp_path: Path) -> None:
+    path = tmp_path / "t.txt"
+    path.write_text("# only a comment\nhttps://bad.example\n")
+    result = runner.invoke(app, ["batch", str(path), "--type", "domain", "--delay", "0"])
+    assert result.exit_code == 2
+    assert "no valid targets" in result.stderr
+
+
+def test_batch_rejects_oversized_file(tmp_path: Path) -> None:
+    path = tmp_path / "t.txt"
+    path.write_text("example.com\n" * 1001)
+    result = runner.invoke(app, ["batch", str(path), "--type", "domain"])
+    assert result.exit_code == 2
+    assert "limited to" in result.stderr
+
+
+def test_diff_detail_changed(tmp_path: Path) -> None:
+    def one(detail: str) -> Report:
+        rep = _report("example.com", [("Issuer", "CA", Severity.INFO)])
+        old = rep.sources[0].findings[0]
+        rep.sources[0].findings[0] = dataclasses.replace(old, detail=detail)
+        return rep
+
+    before = _write(tmp_path / "a.json", one("3 names"))
+    after = _write(tmp_path / "b.json", one("300 names"))
+    result = runner.invoke(app, ["diff", "--before", before, "--after", after, "--output", "json"])
+    body = json.loads(result.stdout)
+    assert [row["title"] for row in body["detail_changed"]] == ["Issuer"]
+    assert body["severity_changed"] == []
 
 
 def _write(path: Path, report: Report) -> str:

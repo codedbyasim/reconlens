@@ -509,13 +509,13 @@ def test_spf_many_mechanisms_finding_is_additional() -> None:
     findings = findings_from_mail("email-auth", "example.com", _mail_answers(many))
     titles = [item.title for item in findings]
     assert "SPF allows any sender" in titles
-    flagged = [item for item in findings if item.title == "SPF has many DNS mechanisms"]
+    flagged = [item for item in findings if item.title == "SPF top-level DNS mechanisms exceed 10"]
     assert flagged[0].value == "11"
     assert flagged[0].severity is Severity.LOW
     few = findings_from_mail(
         "email-auth", "example.com", _mail_answers("v=spf1 include:a.test -all")
     )
-    assert all(item.title != "SPF has many DNS mechanisms" for item in few)
+    assert all(item.title != "SPF top-level DNS mechanisms exceed 10" for item in few)
 
 
 async def _run_email(ctx: object, monkeypatch: pytest.MonkeyPatch, sts: bool) -> list[Finding]:
@@ -559,6 +559,18 @@ async def test_mta_sts_policy_404_is_a_finding(
     )
     findings = await _run_email(ctx, monkeypatch, True)
     assert any(item.title == "MTA-STS policy not found" for item in findings)
+
+
+async def test_mta_sts_transport_error_keeps_dns_findings(
+    ctx: object, mocked: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mocked.get("https://mta-sts.example.com/.well-known/mta-sts.txt").mock(  # type: ignore[attr-defined]
+        side_effect=httpx.ConnectError("boom")
+    )
+    findings = await _run_email(ctx, monkeypatch, True)
+    titles = [item.title for item in findings]
+    assert "MTA-STS policy not available" in titles
+    assert "MTA-STS" in titles
 
 
 async def test_mta_sts_not_fetched_without_txt(
