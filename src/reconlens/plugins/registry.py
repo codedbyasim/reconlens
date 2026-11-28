@@ -24,6 +24,7 @@ BUILTIN_PATHS: tuple[tuple[str, str], ...] = (
     ("http-headers", "reconlens.plugins.http_headers:HttpHeadersSource"),
     ("robots", "reconlens.plugins.robots_security:RobotsSecuritySource"),
     ("ip-geo", "reconlens.plugins.ip_geo:IpGeoSource"),
+    ("ripestat", "reconlens.plugins.ripestat:RipeStatSource"),
     ("wayback", "reconlens.plugins.wayback:WaybackSource"),
     ("username", "reconlens.plugins.username_sites:UsernameSource"),
     ("email-auth", "reconlens.plugins.email_auth:EmailAuthSource"),
