@@ -129,6 +129,7 @@ when you are authorized to.
 | `robots` | domain | none | `robots.txt` and `security.txt`, summarized, links not followed |
 | `wayback` | domain | none | Recent public Wayback CDX snapshots (no new capture is requested) |
 | `ip-geo` | ip | none | Country, network, and ASN from ipwho.is. Private addresses are not sent |
+| `ripestat` | ip | none | Prefix and ASN from RIPEstat network-info. Private addresses are not sent |
 | `gravatar` | email | none | Whether Gravatar has an image (the MD5 avatar URL) |
 | `username` | username | none | Public profile URLs from a small curated list |
 | `virustotal` | domain, ip | `VIRUSTOTAL_API_KEY` | Existing reputation. Nothing is submitted for analysis |
