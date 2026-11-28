@@ -78,10 +78,19 @@ reconlens ip 1.1.1.1
 reconlens email user@example.com
 reconlens username octocat
 reconlens sources
+reconlens doctor
+reconlens batch targets.txt --type domain --delay 1 --output json
+reconlens diff --before old.json --after new.json
 reconlens domain example.com --output json --out example.json
 reconlens domain example.com --output html --out example.html
 reconlens report --input example.json --output md --out example.md
 ```
+
+`reconlens doctor` checks the config file, cache directory, and which key variables are
+set. It prints names only, never values, and makes no network calls.
+`reconlens batch` runs one target type per file (`#` comments and blank lines are skipped,
+bad lines are noted on stderr). `reconlens diff` compares two JSON reports of the same
+target by finding id and exits 2 on a target mismatch or unreadable file.
 
 `--output` is `text` (the default Rich view), `md`, `html`, `json`, `csv`, or
 `jsonl`.

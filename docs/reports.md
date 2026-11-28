@@ -68,3 +68,17 @@ Neither format changes the JSON schema. `reconlens report --input report.json
 
 HTML is escaped. Links are emitted only for `http` and `https` URLs, so a
 finding cannot become a `javascript:` link.
+
+## Batch document
+
+`reconlens batch FILE --type domain|ip|email|username --output json` writes a
+JSON **array** of report objects, one per valid target, in file order. Each
+element is a normal schema 1.x report. The array itself is not a report and has
+no schema version. Skipped lines are listed on stderr, not in the array.
+
+## Diff document
+
+`reconlens diff --before a.json --after b.json --output json` writes
+`{"added": [...], "removed": [...], "severity_changed": [...]}`. Each entry has
+`id`, `source`, `title`, `value`, and `severity`. Severity changes add `before`
+and `after`. Findings are matched on `id`.

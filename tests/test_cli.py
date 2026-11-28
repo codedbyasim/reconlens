@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,16 @@ from reconlens import dnsutil
 from reconlens.cli import app
 from reconlens.dnsutil import DnsAnswer
 from reconlens.errors import SourceError
+from reconlens.models import (
+    Report,
+    Severity,
+    SourceRun,
+    Target,
+    TargetType,
+    make_finding,
+)
 from reconlens.plugins.username_sites import Site, UsernameSource
+from reconlens.reports.json_report import render_json
 
 runner = CliRunner()
 
@@ -234,3 +244,120 @@ def test_scan_accepts_csv_output(mocked: object) -> None:
     again = runner.invoke(app, ["ip", "10.0.0.1", "--output", "jsonl", "--quiet"])
     assert again.exit_code == 0
     assert json.loads(again.stdout.splitlines()[0])["target_type"] == "ip"
+
+
+# --- batch, diff, doctor ---
+
+
+def _report(target_value: str, findings: list[tuple[str, str, Severity]]) -> Report:
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    items = [
+        make_finding(source="s", category="c", title=t, value=v, severity=sev, timestamp=now)
+        for t, v, sev in findings
+    ]
+    run = SourceRun(name="s", status="ok", duration_ms=1, cached=False, findings=items)
+    target = Target(value=target_value, type=TargetType.DOMAIN, original=target_value)
+    return Report(target=target, started_at=now, finished_at=now, sources=[run])
+
+
+def test_batch_skips_comments_and_reports_invalid_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_collect(target: Target, **kwargs: object) -> Report:
+        del kwargs
+        return _report(target.value, [("T", "v", Severity.INFO)])
+
+    monkeypatch.setattr("reconlens.cli.collect", fake_collect)
+    path = tmp_path / "targets.txt"
+    path.write_text("# comment\nexample.com\nhttps://bad.example\nexample.org\n")
+    result = runner.invoke(
+        app, ["batch", str(path), "--type", "domain", "--delay", "0", "--output", "json"]
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert [item["target"]["value"] for item in payload] == ["example.com", "example.org"]
+    assert result.stderr.count("notice:") == 1
+    assert "line 3" in result.stderr
+    assert "Running 2 domain target(s)" in result.stderr
+
+
+def test_batch_rejects_unknown_type_and_missing_file(tmp_path: Path) -> None:
+    path = tmp_path / "t.txt"
+    path.write_text("example.com\n")
+    assert runner.invoke(app, ["batch", str(path), "--type", "host"]).exit_code == 2
+    assert (
+        runner.invoke(app, ["batch", str(tmp_path / "no.txt"), "--type", "domain"]).exit_code == 2
+    )
+
+
+def _write(path: Path, report: Report) -> str:
+    path.write_text(render_json(report), encoding="utf-8")
+    return str(path)
+
+
+def test_diff_added_removed_and_severity_changed(tmp_path: Path) -> None:
+    before = _write(
+        tmp_path / "a.json",
+        _report(
+            "example.com",
+            [("Gone", "x", Severity.INFO), ("Same", "y", Severity.INFO)],
+        ),
+    )
+    after = _write(
+        tmp_path / "b.json",
+        _report("example.com", [("New", "z", Severity.LOW), ("Same", "y", Severity.INFO)]),
+    )
+    result = runner.invoke(app, ["diff", "--before", before, "--after", after, "--output", "json"])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    body = json.loads(result.stdout)
+    assert [row["title"] for row in body["added"]] == ["New"]
+    assert [row["title"] for row in body["removed"]] == ["Gone"]
+    assert body["severity_changed"] == []
+    text = runner.invoke(app, ["diff", "--before", before, "--after", after])
+    assert "Added (1)" in text.stdout
+    assert "Removed (1)" in text.stdout
+    assert "Severity changed (0)" in text.stdout
+
+
+def test_diff_severity_changed(tmp_path: Path) -> None:
+    before = _write(tmp_path / "a.json", _report("example.com", [("T", "v", Severity.INFO)]))
+    after = _write(tmp_path / "b.json", _report("example.com", [("T", "v", Severity.HIGH)]))
+    result = runner.invoke(app, ["diff", "--before", before, "--after", after, "--output", "json"])
+    assert result.exit_code == 0
+    row = json.loads(result.stdout)["severity_changed"][0]
+    assert (row["before"], row["after"]) == ("info", "high")
+
+
+def test_diff_target_mismatch_and_unreadable_exit_2(tmp_path: Path) -> None:
+    one = _write(tmp_path / "a.json", _report("example.com", []))
+    two = _write(tmp_path / "b.json", _report("example.org", []))
+    assert runner.invoke(app, ["diff", "--before", one, "--after", two]).exit_code == 2
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert runner.invoke(app, ["diff", "--before", one, "--after", str(bad)]).exit_code == 2
+    missing = str(tmp_path / "missing.json")
+    assert runner.invoke(app, ["diff", "--before", one, "--after", missing]).exit_code == 2
+
+
+def test_doctor_never_prints_key_values(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    secret = "dummy-secret-" + "x" * 40
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", secret)
+    monkeypatch.delenv("RECONLENS_CONFIG", raising=False)
+    monkeypatch.setenv("RECONLENS_CACHE_DIR", str(tmp_path / "cache"))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert secret not in result.stdout
+    assert secret not in result.stderr
+    assert "VIRUSTOTAL_API_KEY: key set" in result.stdout
+    assert "writable" in result.stdout
+
+
+def test_doctor_exits_2_for_missing_or_invalid_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RECONLENS_CONFIG", str(tmp_path / "missing.toml"))
+    assert runner.invoke(app, ["doctor"]).exit_code == 2
+    bad = tmp_path / "bad.toml"
+    bad.write_text("not = [valid")
+    monkeypatch.setenv("RECONLENS_CONFIG", str(bad))
+    assert runner.invoke(app, ["doctor"]).exit_code == 2

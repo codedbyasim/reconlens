@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -14,15 +17,15 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from reconlens.config import Config, load_config
+from reconlens.config import KEY_ENV_NAMES, Config, default_cache_dir, load_config
 from reconlens.errors import ConfigError, ReconLensError, ReportError, TargetError, UsageError
-from reconlens.models import Report, Target
+from reconlens.models import Finding, Report, Target
 from reconlens.plugins.registry import load_sources
 from reconlens.redact import scrub_text
 from reconlens.render import render_terminal
 from reconlens.reports.csv_report import render_csv
 from reconlens.reports.html import render_html
-from reconlens.reports.json_report import load_report, render_json
+from reconlens.reports.json_report import load_report, render_json, report_to_dict
 from reconlens.reports.jsonl_report import render_jsonl
 from reconlens.reports.markdown import render_markdown
 from reconlens.runner import collect
@@ -291,6 +294,154 @@ def report_cmd(
         _fail(str(exc), code=1)
     except (UsageError, OSError) as exc:
         _fail(str(exc), code=2)
+
+
+_BATCH_PARSERS: dict[str, Callable[[str], Target]] = {
+    "domain": domain_target,
+    "ip": ip_target,
+    "email": email_target,
+    "username": username_target,
+}
+
+
+@app.command("batch")
+def batch_cmd(
+    file: Path = typer.Argument(help="Text file with one target per line."),
+    target_type: str = typer.Option(
+        ..., "--type", help="Target type for every line: domain, ip, email, or username."
+    ),
+    delay: float = typer.Option(
+        1.0, "--delay", min=0, max=3600, help="Seconds to wait between targets."
+    ),
+    output: str = typer.Option(
+        "text", "--output", help="Format: text or json (a list of reports)."
+    ),
+    timeout: float | None = typer.Option(
+        None, "--timeout", min=1, max=120, help="Seconds to wait for each source."
+    ),
+    cache: bool | None = typer.Option(None, "--cache/--no-cache", help="Use the on-disk cache."),
+    quiet: bool = typer.Option(False, "--quiet", help="Do not print the terminal summaries."),
+) -> None:
+    """Run the sources for each target in a file.
+
+    Blank lines and lines starting with # are ignored. A line that is not a valid
+    target is reported on stderr and the run continues.
+    """
+
+    try:
+        kind = target_type.strip().lower()
+        parser = _BATCH_PARSERS.get(kind)
+        if parser is None:
+            raise UsageError("--type must be domain, ip, email, or username")
+        fmt = output.strip().lower()
+        if fmt not in {"text", "json"}:
+            raise UsageError("batch --output must be text or json")
+        lines = file.read_text(encoding="utf-8").splitlines()
+        config = _runtime_config(timeout=timeout, cache=cache)
+    except (UsageError, ConfigError, OSError, UnicodeDecodeError) as exc:
+        _fail(str(exc), code=2)
+    err = Console(stderr=True, highlight=False, emoji=False)
+    targets: list[Target] = []
+    for number, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            targets.append(parser(line))
+        except TargetError as exc:
+            err.print(f"notice: line {number} skipped: {escape(scrub_text(str(exc), []))}")
+    err.print(f"Running {len(targets)} {kind} target(s)")
+    reports: list[Report] = []
+    for index, target in enumerate(targets):
+        if index and delay:
+            time.sleep(delay)
+        report = asyncio.run(collect(target, config=config, only=None, exclude=set()))
+        reports.append(report)
+        if fmt == "text" and not quiet:
+            render_terminal(report, Console(highlight=False, emoji=False))
+    if fmt == "json":
+        sys.stdout.write(
+            json.dumps([report_to_dict(r) for r in reports], indent=2, ensure_ascii=False) + "\n"
+        )
+
+
+@app.command("diff")
+def diff_cmd(
+    before: Path = typer.Option(..., "--before", help="Earlier JSON report."),
+    after: Path = typer.Option(..., "--after", help="Later JSON report."),
+    output: str = typer.Option("text", "--output", help="Format: text or json."),
+) -> None:
+    """Compare two JSON reports for the same target by finding id."""
+
+    try:
+        fmt = output.strip().lower()
+        if fmt not in {"text", "json"}:
+            raise UsageError("diff --output must be text or json")
+        old = load_report(before.read_text(encoding="utf-8"))
+        new = load_report(after.read_text(encoding="utf-8"))
+        if old.target.type != new.target.type or old.target.value != new.target.value:
+            raise UsageError(
+                f"targets differ: {old.target.value} ({old.target.type.value}) "
+                f"vs {new.target.value} ({new.target.type.value})"
+            )
+    except (ReportError, UsageError, OSError, UnicodeDecodeError) as exc:
+        _fail(str(exc), code=2)
+    old_map = {f.id: f for s in old.sources for f in s.findings}
+    new_map = {f.id: f for s in new.sources for f in s.findings}
+    added = [_brief(new_map[i]) for i in new_map if i not in old_map]
+    removed = [_brief(old_map[i]) for i in old_map if i not in new_map]
+    changed = [
+        {
+            **_brief(new_map[i]),
+            "before": old_map[i].severity.value,
+            "after": new_map[i].severity.value,
+        }
+        for i in new_map
+        if i in old_map and old_map[i].severity != new_map[i].severity
+    ]
+    if fmt == "json":
+        payload = {"added": added, "removed": removed, "severity_changed": changed}
+        sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        return
+    for title, rows in (("Added", added), ("Removed", removed), ("Severity changed", changed)):
+        typer.echo(f"{title} ({len(rows)})")
+        for row in rows:
+            extra = f" {row['before']} -> {row['after']}" if "before" in row else ""
+            typer.echo(f"  [{row['source']}] {row['title']}: {row['value']}{extra}")
+
+
+def _brief(finding: Finding) -> dict[str, str]:
+    return {
+        "id": finding.id,
+        "source": finding.source,
+        "title": finding.title,
+        "value": finding.value,
+        "severity": finding.severity.value,
+    }
+
+
+@app.command("doctor")
+def doctor_cmd() -> None:
+    """Check local config and cache settings without printing secrets or using the network."""
+
+    explicit = os.environ.get("RECONLENS_CONFIG", "").strip()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        _fail(str(exc), code=2)
+    if explicit:
+        location = f"RECONLENS_CONFIG={explicit}"
+    else:
+        location = "default search paths (./reconlens.toml, ~/.config/reconlens/config.toml)"
+    typer.echo(f"Config: ok ({location})")
+    cache_dir = config.cache_directory or default_cache_dir()
+    probe = cache_dir
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    writable = probe.is_dir() and os.access(probe, os.W_OK)
+    typer.echo(f"Cache directory: {cache_dir} ({'writable' if writable else 'not writable'})")
+    for name in KEY_ENV_NAMES:
+        typer.echo(f"{name}: {'key set' if config.keys.get(name) else 'not set'}")
 
 
 def _target(parser: Callable[[str], Target], value: str) -> Target:
